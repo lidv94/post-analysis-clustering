@@ -4,33 +4,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 import plotly.express as px
-from post_analysis_clustering.utils import timer
-
-custom_colors = {
-    0: '#c542f5',  # purple
-    1: '#93f542',  # green
-    2: '#c24247',  # red
-    3: '#42b0f5',  # blue
-    4: '#ffac40',  # orange
-    5: '#f54287',  # pink
-    6: '#f5f542',  # yellowz
-    7: '#42f5c5',  # turquoise
-    8: '#c542f5',  # lavender
-    9: '#f542c5'   # magenta
-}
-
-def get_palette(target_cluster, df):
-    unique_classes = sorted(df[target_cluster].unique())
-
-    # Create a mapping: index -> color
-    color_list = list(custom_colors.values())
-    mapped_colors = {}
-
-    for idx, cls in enumerate(unique_classes):
-        color = color_list[idx] if idx < len(color_list) else "#000000"  # fallback to black if out of range
-        mapped_colors[cls] = color
-
-    return mapped_colors
+from post_analysis_clustering.utils import timer, get_palette
 
 @timer
 def plot_pie_cluster(df_in: pd.DataFrame ,target_cluster:str):
@@ -637,7 +611,8 @@ def plot_grouped_bar_by_bins(
             print(f"Skipping {col} due to binning error: {e}")
             continue
 
-        binned_df = pd.concat([zero_part, nonzero_part])
+        parts = [df for df in [zero_part, nonzero_part] if not df.empty]
+        binned_df = pd.concat(parts) if parts else pd.DataFrame()
 
         # Sort bins
         binned_df['bin'] = binned_df['bin'].astype("category")
@@ -645,7 +620,7 @@ def plot_grouped_bar_by_bins(
             sorted(binned_df['bin'].unique(), key=sort_key), ordered=True)
 
         # Group and pivot
-        grouped = binned_df.groupby(['bin', target_cluster]).size().unstack(fill_value=0)
+        grouped = binned_df.groupby(['bin', target_cluster], observed=False).size().unstack(fill_value=0)
         grouped = grouped.loc[sorted(grouped.index, key=sort_key)]
 
         # Plot on current subplot
@@ -726,7 +701,8 @@ def plot_stacked_bar_by_bins(
             print(f"Skipping {col} due to binning error: {e}")
             continue
 
-        binned_df = pd.concat([zero_part, nonzero_part])
+        parts = [df for df in [zero_part, nonzero_part] if not df.empty]
+        binned_df = pd.concat(parts) if parts else pd.DataFrame()
 
         # Sort bins
         binned_df['bin'] = binned_df['bin'].astype("category")
@@ -734,7 +710,7 @@ def plot_stacked_bar_by_bins(
             sorted(binned_df['bin'].unique(), key=sort_key), ordered=True)
 
         # Frequency counts per bin per segment
-        counts = binned_df.groupby(['bin', target_cluster]).size().reset_index(name='count')
+        counts = binned_df.groupby(['bin', target_cluster], observed=False).size().reset_index(name='count')
 
         # % within segment or % by bin
         if percent_by == 'segment':
@@ -802,3 +778,65 @@ def plot_stacked_bar_by_bins(
         plt.suptitle(f"Binned Percentage Distribution of {col} with {reference_stat} reference line", y=1.02, fontsize=14)
         plt.tight_layout()
         plt.show()
+        
+
+        
+#############################################################################################
+
+@timer
+def cluster_feature_stats_table(
+    raw_df: pd.DataFrame,
+    features: list[str],
+    target_cluster: str,
+    filter_col_keywords: list[str] = None,
+    stats: list[str] = ['count','mean', 'mode', 'median', 'std']
+) -> pd.DataFrame:
+    """
+    Create a summary table of statistics for each feature and each cluster.
+
+    Args:
+        df (pd.DataFrame): Input dataframe.
+        feature_list (list[str]): List of feature columns to consider.
+        target_cluster (str): Name of the cluster column.
+        filter_col_keywords (list[str], optional): Filter features by keywords (case-insensitive). Defaults to None.
+        stats (list[str], optional): List of statistics to compute. Options: 'count','mean', 'mode', 'median', 'std'. Defaults to all.
+
+    Returns:
+        pd.DataFrame: MultiIndex dataframe with features and stats per cluster as columns.
+    """
+    df = raw_df.copy()
+
+    if filter_col_keywords is not None:
+        filtered_features = [f for f in features if any(k.lower() in f.lower() for k in filter_col_keywords)]
+    else:
+        filtered_features = features
+
+    clusters = sorted(df[target_cluster].unique())
+
+    results = {}
+
+    for cluster in clusters:
+        cluster_df = df[df[target_cluster] == cluster][filtered_features]
+
+        cluster_stats = {}
+
+        if 'mean' in stats:
+            cluster_stats['mean'] = cluster_df.mean()
+        if 'std' in stats:
+            cluster_stats['std'] = cluster_df.std()
+        if 'count' in stats:
+            cluster_stats['count'] = cluster_df.count()
+        if 'mode' in stats:
+            cluster_stats['mode'] = cluster_df.mode().iloc[0]
+        if 'median' in stats:
+            cluster_stats['median'] = cluster_df.median()
+
+        cluster_df_stats = pd.concat(cluster_stats, axis=1)
+        cluster_df_stats.columns = pd.MultiIndex.from_product([[cluster], cluster_df_stats.columns])
+        results[cluster] = cluster_df_stats
+
+    final_df = pd.concat(results.values(), axis=1)
+
+    final_df = final_df.round(2)
+
+    return final_df
