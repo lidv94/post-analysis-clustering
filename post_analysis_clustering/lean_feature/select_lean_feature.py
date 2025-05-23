@@ -50,6 +50,8 @@ class LeanFeature:
             raise ValueError(f"target_cluster '{self.target_cluster}' not found in DataFrame columns")
         if not isinstance(self.n_rank, int) or self.n_rank < 1:
             raise ValueError("`n_rank` must be a positive integer.")
+        if not isinstance(self.pct_thres, int) or self.pct_thres < 1:
+            raise ValueError("`pct_thres` must be a positive integer.")   
         if not isinstance(self.vote_score, int) or not (1 <= self.vote_score <= len(self.models)):
             raise ValueError(f"`vote_score` must be a positive integer ≤ number of models ({len(self.models)})")
 
@@ -589,4 +591,222 @@ class LeanFeature:
         except Exception as e:
             print(f"Error in ImportanceThreshold: {e}")
             raise
+    
+    ################################################################################
+    
+    # 1. Binning Function (equal range)
+    @timer
+    def _bin_features(self,
+                    n_bins: int = 5,
+                    drop_original: bool = True
+                    ) -> pd.DataFrame:
+        """
+        Bin numerical features into equal-width intervals.
+        If negative values are found, suggest using bin_features_neg_zero_pos instead.
+        """
+        binned_df = self.df.copy()
 
+        for col in self.features:
+            try:
+                # Handle edge cases: NaNs and identical values
+                if binned_df[col].nunique() <= 1:
+                    binned_df[f"{col}_bin"] = "SingleValue"
+                    continue
+
+                if (binned_df[col] < 0).any():
+                    print(f"Warning: Negative values detected in column '{col}'. Suggest using 'bin_features_neg_zero_pos' instead.")
+
+                bin_edges = np.round(np.linspace(binned_df[col].min(), binned_df[col].max(), n_bins + 1), 2)
+                binned_series = pd.cut(
+                    binned_df[col].fillna(binned_df[col].median()),
+                    bins=bin_edges,
+                    duplicates='drop',
+                    include_lowest=True
+                )
+
+                # Format bin labels to 2 decimal places
+                binned_df[f"{col}_bin"] = binned_series.astype(str).str.replace(
+                    r'([\d\.-]+)', lambda m: f"{float(m.group()):.2f}", regex=True)
+            except Exception as e:
+                print(f"Error processing column '{col}': {e}")
+                binned_df[f"{col}_bin"] = "Error"
+
+        if drop_original:
+            binned_df.drop(columns=self.features, inplace=True)
+
+        return binned_df
+
+    @timer
+    def _bin_features_neg_zero_pos(self,
+                                    pos_n_bins: int = 5,
+                                    neg_n_bins: int = 5,
+                                    drop_original: bool = True
+                                ) -> pd.DataFrame:
+        """
+        Bin numerical features into separate intervals for negative, zero, and positive values.
+
+        - Negative values are binned into negative bins.
+        - Zero values are labeled as "= 0".
+        - Positive values are binned into positive bins.
+
+        This function allows for separate binning of negative and positive values, with customizable
+        bin counts for both groups.
+        """
+        binned_df = self.df.copy()
+
+        for col in self.features:
+            try:
+                # Handle columns with only one unique value
+                if binned_df[col].nunique() <= 1:
+                    unique_val = binned_df[col].dropna().unique()[0] if binned_df[col].notna().any() else "NaN"
+                    binned_df[f"{col}_bin"] = f"SingleValue: {unique_val}"
+                    continue
+
+                zero_mask = binned_df[col] == 0
+                negative_mask = binned_df[col] < 0
+                positive_mask = binned_df[col] > 0
+
+                zero_part = binned_df.loc[zero_mask].copy()
+                negative_part = binned_df.loc[negative_mask].copy()
+                positive_part = binned_df.loc[positive_mask].copy()
+
+                binned_col = pd.Series(index=binned_df.index, dtype="object")
+
+                # Handle negative values
+                if not negative_part.empty:
+                    neg_values = negative_part[col].round(2)
+                    neg_bin_edges = np.round(np.linspace(neg_values.min(), neg_values.max(), neg_n_bins + 1), 2)
+
+                    if len(np.unique(neg_bin_edges)) == 1:
+                        negative_part[f"{col}_bin"] = f"SingleNegativeBin: {neg_values.min()}"
+                    else:
+                        cut_result = pd.cut(
+                            neg_values,
+                            bins=neg_bin_edges,
+                            include_lowest=True
+                        )
+                        negative_part[f"{col}_bin"] = cut_result.astype(str).str.replace(
+                            r'([\d\.-]+)', lambda m: f"{float(m.group()):.2f}", regex=True)
+
+                    binned_col.loc[negative_part.index] = negative_part[f"{col}_bin"]
+
+                # Handle zero values
+                if not zero_part.empty:
+                    binned_col.loc[zero_part.index] = "= 0"
+
+                # Handle positive values
+                if not positive_part.empty:
+                    pos_values = positive_part[col].round(2)
+                    pos_bin_edges = np.round(np.linspace(pos_values.min(), pos_values.max(), pos_n_bins + 1), 2)
+
+                    if len(np.unique(pos_bin_edges)) == 1:
+                        positive_part[f"{col}_bin"] = f"SinglePositiveBin: {pos_values.min()}"
+                    else:
+                        cut_result = pd.cut(
+                            pos_values,
+                            bins=pos_bin_edges,
+                            include_lowest=True
+                        )
+                        positive_part[f"{col}_bin"] = cut_result.astype(str).str.replace(
+                            r'([\d\.-]+)', lambda m: f"{float(m.group()):.2f}", regex=True
+                        )
+
+                    binned_col.loc[positive_part.index] = positive_part[f"{col}_bin"]
+
+                binned_df[f"{col}_bin"] = binned_col
+
+            except Exception as e:
+                print(f"Error processing column '{col}': {e}")
+                binned_df[f"{col}_bin"] = "Error"
+
+        if drop_original:
+            binned_df.drop(columns=self.features, inplace=True)
+
+        return binned_df
+
+    # 3. Chi-square Test Function
+    @timer
+    def test_chi_square_segment_vs_rest(
+        df: pd.DataFrame, 
+        features: list[str], 
+        target_cluster: str, 
+        binary_target_prefix: str = "is_cluster_", 
+        n_bins: int = 5, 
+        bin_suffix: str = "_bin", 
+        bin_type: str = 'handle_neg_zero_pos'
+        ):
+        """
+        Perform Chi-square tests between binned features and cluster binary segments.
+
+        The function bins the given features and splits the data into segments based on the specified 
+        target cluster. It then performs a Chi-square test for independence between each binned feature 
+        and the binary cluster segment. The results are returned as p-values in a DataFrame.
+
+        Args:
+            df (pd.DataFrame): Input DataFrame containing features to be binned and analyzed.
+            features (list of str): List of feature names to bin and analyze.
+            target_cluster (str): Column name representing the target cluster.
+            binary_target_prefix (str, optional): Prefix to identify binary cluster columns. Defaults to "is_cluster_".
+            n_bins (int, optional): Number of bins to create for positive values. Defaults to 5.
+            bin_suffix (str, optional): Suffix for the binned feature columns. Defaults to "_bin".
+            bin_type (str, optional): Type of binning method. Options:
+                - 'normal': standard binning with normal cut
+                - 'handle_neg_zero_pos': handles negative, zero, and positive values separately (default).
+
+        Returns:
+            pd.DataFrame: DataFrame containing p-values for each binned feature with each cluster segment.
+
+        Example:
+            pval_df = test_chi_square_segment_vs_rest(
+                df=my_df, 
+                features=["feature1", "feature2"], 
+                target_cluster="cluster_id")
+
+        Notes:
+            - A p-value less than 0.05 indicates a significant relationship between the feature and the segment.
+        """
+        try:
+            # Step 1 Preprocess data to create binary columns for cluster segments
+            df_with_binary = prep_binary_class(df=df, features=features, target_cluster=target_cluster)
+
+            # Step 2 Bin features using the specified binning method
+            if bin_type == 'normal':
+                df_binned = bin_features(df=df_with_binary, features=features, n_bins=n_bins)
+            else: # Default: 'handle_neg_zero_pos'
+                df_binned = bin_features_neg_zero_pos(df=df_with_binary, features=features, pos_n_bins=n_bins, neg_n_bins=5)
+
+            result_dict = {}
+
+            # Step 3 Identify binary columns that represent the cluster segments
+            binary_columns = [col for col in df_binned.columns if col.startswith(binary_target_prefix)]
+            # Step 4: Identify binned feature columns
+            binned_features = [col for col in df_binned.columns if col.endswith(bin_suffix)]
+
+            print(f'List of binary class columns : {binary_columns}')
+            print(f'List of binned features : {binned_features}')
+
+            # Step 5: Loop over each binary segment column and test against binned features
+            for bin_col in binary_columns:
+                segment_label = bin_col.replace(binary_target_prefix, '')
+                p_values = {}
+
+                for feature in binned_features:
+                    try:
+                        contingency = pd.crosstab(df_binned[feature], df_binned[bin_col])
+                        if contingency.shape[0] > 1 and contingency.shape[1] == 2:
+                            _, p, _, _ = chi2_contingency(contingency)
+                        else:
+                            p = np.nan
+                    except Exception as e:
+                        warnings.warn(f"Chi-square failed for feature '{feature}' and segment '{segment_label}': {e}")
+                        p = np.nan # If insufficient data, set p-value to NaN
+
+                    p_values[feature] = p
+
+                # Step 6: Store p-values for each segment in the result dictionary
+                result_dict[segment_label] = p_values
+
+            return pd.DataFrame(result_dict)
+
+        except Exception as e:
+            raise RuntimeError(f"[Chi-Square Segment Test] Failed due to: {e}")
