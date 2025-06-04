@@ -9,7 +9,7 @@ from post_analysis_clustering.utils import timer
 class ModelCreation:
     def __init__(self, 
                  models: dict,
-                 n_rank: int = 5,
+                 n_rank: int=5,
                  pct_thres:float=80,
                 ):
         self.models = models
@@ -18,6 +18,18 @@ class ModelCreation:
         
     @timer
     def _calculate_permutation_importance(self, features, model, X_test, y_test):
+        """
+        model must be dictionary.
+        example :
+        models = {
+                "Decision Tree": DecisionTreeClassifier(random_state=42),
+                "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42),
+                "HistGradientBoosting": HistGradientBoostingClassifier(random_state=42, early_stopping=True),
+                "Logistic Regression": LogisticRegression(max_iter=2000, random_state=42),
+                "Logistic Regression (L1)": LogisticRegression(penalty='l1', solver='liblinear', max_iter=2000, random_state=42),
+                "Naive Bayes": GaussianNB()
+                }
+        """
         perm_importance = permutation_importance(model,
                                                  X_test, 
                                                  y_test, 
@@ -214,28 +226,28 @@ class ModelCreation:
               .reset_index(name='count')
                 )
 
-        bin_cumsum_df =  count_df.pivot_table(index=['Feature', 'Segment'], 
+        final_pvt_cumsum_bin =  count_df.pivot_table(index=['Feature', 'Segment'], 
                                      columns='bin', 
                                      values='count', 
                                      fill_value=0, 
                                      observed=False).reset_index()
 
-        bin_cumsum_df['single_imp'] = np.where(bin_cumsum_df['pct_100']==len(self.models),
-                                               bin_cumsum_df['pct_100'],
+        final_pvt_cumsum_bin['single_imp'] = np.where(final_pvt_cumsum_bin['pct_100']==len(self.models),
+                                               final_pvt_cumsum_bin['pct_100'],
                                                0).astype(int)        
         # Reorder columns: Feature, Segment, cnt_models_all_one, bin columns
         ordered_cols = ['Feature']+['single_imp'] + bin_labels +['Segment']
-        bin_cumsum_df = bin_cumsum_df.reindex(columns=ordered_cols)
-        bin_cumsum_df[bin_labels] = bin_cumsum_df[bin_labels].astype(int)
-        bin_cumsum_df = bin_cumsum_df.sort_values(by=["Segment", "Feature"], ascending=[True, False]).reset_index(drop=True)
+        final_pvt_cumsum_bin = final_pvt_cumsum_bin.reindex(columns=ordered_cols)
+        final_pvt_cumsum_bin[bin_labels] = final_pvt_cumsum_bin[bin_labels].astype(int)
+        final_pvt_cumsum_bin = final_pvt_cumsum_bin.sort_values(by=["Segment", "Feature"], ascending=[True, False]).reset_index(drop=True)
         
         #########################################################
         
-        print(f"Using threshold of {self.pct_thres}% to determine feature importance across models.")
+        print(f"Using threshold of {self.pct_thres*100}% to determine feature importance across models.")
         
         # Create threshold bin labels directly from the df
         df['bin_thres'] = np.where(
-            df['cumsum_pct'] * 100 < self.pct_thres,
+            df['cumsum_pct'] * 100 < self.pct_thres*100,
             f"pct=<thres",
             f"pct>thres"
         )
@@ -256,9 +268,9 @@ class ModelCreation:
             observed=False
         ).reset_index()
 
-        # Add 'single_imp' column from bin_cumsum_df
+        # Add 'single_imp' column from final_pvt_cumsum_bin
         final_pvt_cumsum_score = final_pvt_cumsum_score.merge(
-            bin_cumsum_df[['Feature', 'Segment', 'single_imp']],
+            final_pvt_cumsum_bin[['Feature', 'Segment', 'single_imp']],
             on=['Feature', 'Segment'],
             how='left'
         )
@@ -272,7 +284,7 @@ class ModelCreation:
         
         final_pvt_cumsum_score = final_pvt_cumsum_score.loc[:,['Feature','single_imp','pct=<thres','Segment']]
                 
-        return bin_cumsum_df , final_pvt_cumsum_score
+        return final_pvt_cumsum_bin , final_pvt_cumsum_score
 
 
     def run(self,
@@ -280,14 +292,13 @@ class ModelCreation:
             features: list[str],
             target_cluster: str):
         
-        final_imp,final_pvt_imp_score,final_cumsum = self._cal_imp_all_binary_class(df, features, target_cluster)
-        bin_cumsum_df , final_pvt_cumsum_score = self._bin_cumsum_percentiles(final_cumsum)
-        
+        final_imp,final_imp_score,final_cumsum = self._cal_imp_all_binary_class(df, features, target_cluster)
+        final_cumsum_bin , final_cumsum_score = self._bin_cumsum_percentiles(final_cumsum)
         
         return dict(
                     final_imp=final_imp,
-                    final_pvt_imp_score=final_pvt_imp_score,
-                    final_cumsum=final_cumsum,
-                    bin_cumsum_df=bin_cumsum_df,
-                    final_pvt_cumsum_score=final_pvt_cumsum_score
+                    final_imp_score=final_imp_score,
+                    # final_cumsum=final_cumsum,
+                    final_cumsum_bin=final_cumsum_bin,
+                    final_cumsum_score=final_cumsum_score
                     )
