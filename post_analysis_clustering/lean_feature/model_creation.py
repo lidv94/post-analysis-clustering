@@ -286,7 +286,7 @@ class ModelCreation:
                 
         return final_pvt_cumsum_bin , final_pvt_cumsum_score
 
-
+    @timer
     def run(self,
             df: pd.DataFrame,
             features: list[str],

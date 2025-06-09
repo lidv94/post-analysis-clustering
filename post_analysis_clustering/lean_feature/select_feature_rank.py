@@ -24,7 +24,8 @@ class LeanImportanceRank(BaseLean):
         super().__init__(df, features, target_cluster, models, n_rank, pct_thres, vote_score)
 
         self.model_creation = model_creation
-
+        
+    @timer
     def RunModelCreation(self):
         """
         Runs the ModelCreation process and stores final importance results.
@@ -46,7 +47,8 @@ class LeanImportanceRank(BaseLean):
         print(f"final_imp_score shape: {self.final_imp_score.shape}")
 
         return self.final_imp, self.final_imp_score
-           
+    
+    @timer       
     def GetLeanFeature(self, 
                        final_imp_score: pd.DataFrame = None, 
                        ):

@@ -13,21 +13,30 @@ class LeanChiSquare(BaseLean):
                  df, 
                  features, 
                  target_cluster,
-                 vote_score: int = 3
+                 thres_logworth: float = 1.301
                 ):
         
         self.df = df
         self.features = features
         self.target_cluster = target_cluster
-        self.vote_score = vote_score
+        self.thres_logworth = thres_logworth
+        
+        self._validate_chisq_attribute()
         
         # Call BaseLean init
         super().__init__(df, 
                          features, 
-                         target_cluster,
-                         vote_score=vote_score)
+                         target_cluster)
         
-    def PrepBin(self,
+    def _validate_chisq_attribute(self):
+        if not isinstance(self.thres_logworth, (float, int)):
+            raise TypeError("thres_logworth must be a numeric value.")
+        
+        if self.thres_logworth <= 0:
+            raise ValueError("thres_logworth must be greater than 0.")
+            
+    @timer    
+    def PrepData(self,
                      method: str = "equal_range",  # or "neg_zero_pos"
                      n_bins: int = 5,
                      neg_n_bins: int = 5,
@@ -50,7 +59,12 @@ class LeanChiSquare(BaseLean):
             pd.DataFrame: DataFrame with binned features as new columns.
         """
         binned_df = self.df.copy()
-
+        
+        # prep binary class
+        for cluster_label in sorted(binned_df[self.target_cluster].unique()):
+            binned_df[f'is_cluster_{cluster_label}'] = (binned_df[self.target_cluster] == cluster_label).astype(int)
+        
+        # prep bin
         for col in self.features:
             # Skip constant columns
             if binned_df[col].nunique(dropna=False) <= 1:
@@ -121,93 +135,148 @@ class LeanChiSquare(BaseLean):
             binned_df.drop(columns=self.features, inplace=True)
 
         return binned_df
-
-
     
-    
-    
-    
-#     def RunModelCreation(self):
-#         """
-#         Runs the ModelCreation process and stores final importance results.
-#         """
-#         print("Running model creation and importance ranking...")
+    @timer
+    def TestChiSquare(self,
+                     method: str = "equal_range",  # or "neg_zero_pos"
+                     n_bins: int = 5,
+                     neg_n_bins: int = 5,
+                     pos_n_bins: int = 5,
+                     drop_original: bool = True,
+                     min_valid_p: float = 1e-300
+                     ):
 
-#         result = self.model_creation.run(
-#             df=self.df,
-#             features=self.features,
-#             target_cluster=self.target_cluster,
-#         )
+        # Step 1 Preprocess data to create binary columns for cluster segments
+        binned_df = self.PrepData(method=method,
+                                  n_bins=n_bins,
+                                  neg_n_bins=neg_n_bins,
+                                  pos_n_bins=pos_n_bins,
+                                  drop_original=drop_original)
+                                      
+        result_dict = {}
 
-#         # Extract from dict instead of tuple
-#         self.final_imp = result["final_imp"]
-#         self.final_imp_score = result["final_imp_score"]
+        # Step 2 Identify binary columns that represent the cluster segments
+        binary_columns = [col for col in binned_df.columns if col.startswith("is_cluster_")]
+        # Step 3: Identify binned feature columns
+        binned_features = [col for col in binned_df.columns if col.endswith("_bin")]
 
-#         print("Importance analysis completed successfully.")
-#         print(f"final_imp shape: {self.final_imp.shape}")
-#         print(f"final_imp_score shape: {self.final_imp_score.shape}")
+        print(f'List of binary class columns : {binary_columns}')
+        print(f'List of binned features : {binned_features}')
+        
+        # Step 4: Loop over each binary segment column and test against binned features
+        for bin_col in binary_columns:
+            segment_label = bin_col.replace("is_cluster_", '')
+            p_values = {}
 
-#         return self.final_imp, self.final_imp_score
-           
-#     def GetLeanFeature(self, 
-#                        final_imp_score: pd.DataFrame = None, 
-#                        ):
-#         """
-#         Filters features by cluster and a threshold score for importance, and returns the remaining features for each cluster.
-#         """
-#         try:
-#             if final_imp_score is None:
-#                 if not hasattr(self, "final_imp_score")  or self.final_imp_score is None:
-#                     print("No final_imp_score provided. Computing feature importance for all segments...")
-#                     self._cal_imp_all_binary_class()
-#                 final_imp_score = self.final_imp_score
+            for feature in binned_features:
+                try:
+                    contingency = pd.crosstab(binned_df[feature], binned_df[bin_col])
+                    if contingency.shape[0] > 1 and contingency.shape[1] == 2:
+                        _, p, _, _ = chi2_contingency(contingency)
+                    else:
+                        p = np.nan
+                except Exception as e:
+                    warnings.warn(f"Chi-square failed for feature '{feature}' and segment '{segment_label}': {e}")
+                    p = np.nan # If insufficient data, set p-value to NaN
 
-#             df = final_imp_score.copy()
-#             unique_segments = sorted(df['Segment'].unique())
-#             cluster_lean_features_dict = {}
-#             union_lean_feature_set = set()
+                p_values[feature] = p
+                
+            # Step 5: Store p-values for each segment in the result dictionary
+            result_dict[segment_label] = p_values
             
-#             print(f'Threshold of vote score >= {self.vote_score}')
-
-#             for cluster in unique_segments:
-#                 df_cluster = df[df['Segment'] == cluster].copy()
-#                 df_cluster['sum_top_model'] = df_cluster.drop(columns=['Segment', 'Feature']).sum(axis=1)
-
-#                 df_cluster = df_cluster[df_cluster['sum_top_model'] >= self.vote_score]
-#                 lean_feature_list = sorted(df_cluster['Feature'].tolist())
-#                 union_lean_feature_set.update(lean_feature_list)
-
-#                 cluster_lean_features_dict[cluster] = lean_feature_list
-
-#                 print(f"Cluster {cluster}:")
-#                 print(f"  Total features from raw: {len(set(final_imp_score['Feature'].to_list()))}")
-#                 print(f"  Total features remaining after threshold filter: {len(lean_feature_list)}")
-
-#             union_lean_feature_list = sorted(list(union_lean_feature_set))
-#             print(f"\nUnion across all clusters:")
-#             print(f"  Total union features: {len(union_lean_feature_list)}")
-
-#             return cluster_lean_features_dict, union_lean_feature_list
-
-#         except Exception as e:
-#             print(f"Error in filter_thres_features_by_cluster: {e}")
-#             raise
+        pval_df= pd.DataFrame(result_dict)
         
-
-# class LeanChiSquare(BaseLean):
-#     def __init__(self):
-#         ...
+        # Step 6 : Convert p-values into logworth scores
+        logworth_df = -np.log10(pval_df.clip(lower=min_valid_p))  # clipping values to avoid log(0)
+        logworth_df = logworth_df.round(4)
         
-#     def run(self):
-#         ...
+        print("\nLogWorth scores calculated. Higher values = more significant.")
         
-#     def _plot(self):
-#         ...
+        self.logworth_df =logworth_df
+        self.pval_df = pval_df
         
-#     def plot(self):
-#         ...
-        
-
-        
-#     ################################################################################
+        return self.pval_df , self.logworth_df
     
+    @timer
+    def GetLeanFeature(self,
+                        logworth_df: pd.DataFrame=None
+                       ):
+         try:
+            if logworth_df is None:
+                if not hasattr(self, "logworth_df")  or self.logworth_df is None:
+                    print("No logworth_df provided. Testing Chi-Square for all segments...")
+                    self.TestChiSquare()
+                logworth_df = self.logworth_df
+
+            cluster_lean_features_dict = {}
+            union_lean_feature_set = set()
+
+            print(f'Threshold of logworth > {self.thres_logworth}')
+
+            for cluster in logworth_df.columns:
+                sig_features = logworth_df[cluster][logworth_df[cluster] > self.thres_logworth].dropna().index.tolist()
+                sig_features = sorted(sig_features)
+                union_lean_feature_set.update(sig_features)
+
+                cluster_lean_features_dict[cluster] = sig_features
+
+                print(f"Cluster {cluster}:")
+                print(f"  Total features from raw: {len(logworth_df.index)}")
+                print(f"  Total features remaining after threshold filter: {len(sig_features)}")
+
+            union_lean_feature_list = sorted(list(union_lean_feature_set))
+            print(f"\nUnion across all clusters:")
+            print(f"  Total union features: {len(union_lean_feature_list)}")
+
+            return cluster_lean_features_dict, union_lean_feature_list
+
+         except Exception as e:
+            print(f"Error in filter_thres_features_by_cluster: {e}")
+            raise
+        
+    @timer
+    def PlotHeatmapLogworth(self, 
+                      logworth_df: pd.DataFrame = None, 
+                      compare_type: str = 'Normalized'
+                      ):
+        
+        if logworth_df is None:
+            if not hasattr(self, "logworth_df")  or self.logworth_df is None:
+                print("No logworth_df provided. Testing Chi-Square for all segments...")
+                self.TestChiSquare()
+            logworth_df = self.logworth_df
+
+        if compare_type not in ['Global', 'Percentage', 'Normalized']:
+            raise ValueError("compare_type must be one of 'Global', 'Percentage', or 'Normalized'.")
+
+        # Define the number of clusters and features
+        clusters = logworth_df.columns
+        features = logworth_df.index
+
+        # Compute data for selected compare_type
+        if compare_type == 'Global':
+            show_data = logworth_df
+        elif compare_type == 'Percentage':
+            show_data = logworth_df.div(logworth_df.sum(axis=0), axis=1) * 100
+        else:  # Default: 'Normalized'
+            show_data = (logworth_df - logworth_df.min()) / (logworth_df.max() - logworth_df.min())
+
+        # Plot the heatmap
+        plt.figure(figsize=(12, 6))
+        sns.heatmap(
+            show_data,
+            cmap='Blues',
+            annot=logworth_df,
+            fmt=".2f",
+            cbar=True,
+            linewidths=0.4,
+            linecolor='gray',
+            mask=logworth_df.isna()
+        )
+
+        # Labels and title
+        plt.title(f"LogWorth Heatmap ({compare_type} Column-scaled)", fontsize=14)
+        plt.xlabel("Clusters")
+        plt.ylabel("Features")
+        plt.tight_layout()
+        plt.show()

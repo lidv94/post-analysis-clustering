@@ -24,7 +24,8 @@ class LeanImportanceThreshold(BaseLean):
         super().__init__(df, features, target_cluster, models, n_rank, pct_thres, vote_score)
 
         self.model_creation = model_creation
-
+    
+    @timer
     def RunModelCreation(self):
         """
         Runs the ModelCreation process and stores final importance results.
