@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 import plotly.express as px
 from post_analysis_clustering.utils import timer, get_palette
 
@@ -840,3 +840,102 @@ def cluster_feature_stats_table(
     final_df = final_df.round(2)
 
     return final_df
+
+
+@timer
+def plot_radar_chart(
+    raw_df: pd.DataFrame,
+    features: list[str],
+    target_cluster: str,
+    agg_method: str = "median",
+    scaler_type: str = "minmax"
+):
+    """
+    Creates radar charts for each cluster using scaled feature summaries.
+
+    Args:
+        raw_df (pd.DataFrame): DataFrame containing features and target cluster column.
+        features (list[str]): List of feature column names.
+        target_cluster (str): Name of the column with cluster or group labels.
+        agg_method (str): Aggregation method for feature summaries. Options: 'mean', 'median', 'q1', 'q3', 'max', 'min'.
+        scaler_type (str): Type of scaler to use. Options: 'standard', 'minmax'.
+    
+    Return:
+        None, displays radar chart.
+    """
+    # --- Select scaler ---
+    if scaler_type == "standard":
+        scaler = StandardScaler()
+    elif scaler_type == "minmax":
+        scaler = MinMaxScaler()
+    else:
+        raise ValueError("scaler_type must be 'standard' or 'minmax'.")
+
+    # --- Scale features ---
+    scaled = scaler.fit_transform(raw_df[features])
+    df_scaled = pd.DataFrame(scaled, columns=features)
+    df_scaled[target_cluster] = raw_df[target_cluster].values
+
+    # --- Group and summarize ---
+    if agg_method == "mean":
+        grouped = df_scaled.groupby(target_cluster).mean()
+    elif agg_method == "median":
+        grouped = df_scaled.groupby(target_cluster).median()
+    elif agg_method == "q1":
+        grouped = df_scaled.groupby(target_cluster).quantile(0.25)
+    elif agg_method == "q3":
+        grouped = df_scaled.groupby(target_cluster).quantile(0.75)
+    elif agg_method == "max":
+        grouped = df_scaled.groupby(target_cluster).max()
+    elif agg_method == "min":
+        grouped = df_scaled.groupby(target_cluster).min()
+    else:
+        raise ValueError("agg_method must be one of: 'mean', 'median', 'q1', 'q3', 'max', 'min'.")
+
+    # --- Get cluster colors ---
+    custom_colors = get_palette(target_cluster, raw_df)
+
+    # --- Radar chart setup ---
+    categories = features
+    N = len(categories)
+    angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
+    angles += angles[:1]
+
+    n_clusters = len(grouped)
+    # --- Create subplot grid (2x2 layout or more if needed) ---
+    n_cols = 2
+    n_rows = int(np.ceil(n_clusters / n_cols))
+    fig = plt.figure(figsize=(6 * n_cols, 5 * n_rows))
+
+    for i, (cluster_name, row) in enumerate(grouped.iterrows()):
+        ax = plt.subplot(n_rows, n_cols, i + 1, polar=True)
+
+        values = row.tolist()
+        values += values[:1]
+        color = custom_colors.get(cluster_name, 'blue')
+
+        ax.set_theta_offset(np.pi / 2)
+        ax.set_theta_direction(-1)
+        ax.plot(angles, values, linewidth=2, color=color)
+        ax.fill(angles, values, color=color, alpha=0.25)
+
+        ax.set_xticks(angles[:-1])
+        ax.set_xticklabels(categories, fontsize=9)
+        ax.set_title(f"{cluster_name}", size=11, pad=20)
+        ax.grid(True, linestyle=':', alpha=0.6)
+        ax.set_rlabel_position(0)
+
+        if scaler_type == "standard":
+            ax.set_yticks([-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2])
+            ax.set_ylim(-2.5, 2.5)
+        elif scaler_type == "minmax":
+            ax.set_yticks([0, 0.25, 0.5, 0.75, 1.0])
+            ax.set_ylim(0, 1.05)
+
+        ax.tick_params(axis='y', colors='gray')
+        
+
+    plt.tight_layout()
+    plt.show()
+    
+    return grouped
