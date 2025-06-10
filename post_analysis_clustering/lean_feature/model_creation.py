@@ -5,7 +5,6 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report
 from post_analysis_clustering.utils import timer
 
-
 class ModelCreation:
     def __init__(self, 
                  models: dict,
