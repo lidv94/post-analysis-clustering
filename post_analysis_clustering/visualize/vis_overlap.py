@@ -8,6 +8,44 @@ from post_analysis_clustering.utils import timer, get_palette
 from post_analysis_clustering.visualize.base import BaseVis
 
 class OverlapPairPlot(BaseVis):
+    """
+    A class for visualizing overlap between clusters or segments using convex hulls 
+    and centroid plots across pairs of selected features.
+
+    This class supports:
+    - Visualizing the boundary (convex hull) of each cluster in 2D feature spaces.
+    - Showing centroids computed from full feature space projected into 2D.
+    - Creating a lower-triangle pairplot with polygon overlays for all feature pairs.
+
+    Inherits:
+        BaseVis: Provides the base DataFrame, selected feature names, target cluster column, and primary key.
+
+    Attributes:
+        df (pd.DataFrame): The input dataset containing features and cluster labels.
+        features (list[str]): List of numerical feature columns used in the pairwise analysis.
+        target_cluster (str): Column name indicating cluster/segment assignments.
+        primary_key (str): Unique identifier for each row in the dataset.
+
+    Methods:
+        plot_segment_overlap(Xi, Xj):
+            Plots convex hulls and centroids in a single 2D scatter plot using two features.
+
+        _plot_segment_overlap_polygon_ax(Xi, Xj, ax):
+            Internal helper for plotting convex hulls and centroids on a specific matplotlib axis.
+
+        plot_custom_polygon_pairplot():
+            Displays a lower-triangle pairplot across all feature combinations, with hulls and centroids per segment.
+
+    Example:
+        >>> overlap = OverlapPairPlot(
+                df=my_df, 
+                features=["feature1", "feature2", "feature3"], 
+                target_cluster="cluster", 
+                primary_key="id"
+            )
+        >>> overlap.plot_segment_overlap("feature1", "feature2")
+        >>> overlap.plot_custom_polygon_pairplot()
+    """
     def __init__(self, 
                  df, 
                  features, 
@@ -26,11 +64,8 @@ class OverlapPairPlot(BaseVis):
         Plot convex hulls and centroids (computed as means) for each segment using two selected features.
 
         Args:
-            data (pd.DataFrame): The dataset containing the features and segment labels.
             Xi (str): Name of the feature to be plotted on the x-axis.
             Xj (str): Name of the feature to be plotted on the y-axis.
-            segments (str): Column name in the DataFrame indicating the segment or cluster labels.
-            feature_list (list[str]): List of all feature names to compute centroids.
 
         Returns:
             None: Displays a matplotlib plot.
@@ -88,11 +123,8 @@ class OverlapPairPlot(BaseVis):
         Plots convex hulls (boundaries) and centroids (cluster means) for each segment on a given axis.
 
         Args:
-            data (pd.DataFrame): DataFrame containing the dataset.
             Xi (str): Name of the feature to be plotted on the x-axis.
             Xj (str): Name of the feature to be plotted on the y-axis.
-            segments (str): Column name representing segment/cluster labels.
-            feature_list (list[str]): List of all feature names used to compute the mean centroids.
             ax (matplotlib.axes.Axes, optional): Matplotlib axis to plot the graph on. Defaults to None.
 
         Returns:
@@ -132,11 +164,6 @@ class OverlapPairPlot(BaseVis):
     def plot_custom_polygon_pairplot(self) -> None:
         """
         Creates a customized lower-triangle pairplot showing convex hulls and mean centroids for each segment.
-
-        Args:
-            data (pd.DataFrame): DataFrame containing the full dataset.
-            features (list[str]): List of feature names to include in the pairplot.
-            segments (str): Column name representing cluster assignments.
 
         Returns:
             None: Displays a pairplot with hulls and centroids.
@@ -190,6 +217,21 @@ class OverlapPairPlot(BaseVis):
     ######################### START ELLIPSES ########################
     #################################################################       
     def _validate_attributes(self):
+        """
+        Validate the `confidence_level` attribute to ensure it is within the acceptable range.
+
+        This method checks that:
+        - If `confidence_level` is not None:
+            - It must be of type `float` or `int`.
+            - Its value must be strictly greater than 0 and less than or equal to 1.
+
+        Raises:
+            TypeError: If `confidence_level` is not a float or int.
+            ValueError: If `confidence_level` is not within the range (0, 1].
+
+        Returns:
+            None
+        """
         if self.confidence_level is not None:        
             if not isinstance(self.confidence_level, (float, int)) or not (0 < self.confidence_level <= 1):
                 raise ValueError("`confidence_level` must be a float between 0 and 1.")
@@ -205,12 +247,9 @@ class OverlapPairPlot(BaseVis):
         Plot confidence ellipses and centroids for each segment using two selected features.
 
         Args:
-            data (pd.DataFrame): Dataset containing features and segment labels.
             Xi (str): Feature for x-axis.
             Xj (str): Feature for y-axis.
-            segments (str): Column for segment labels.
             confidence_level (float, optional): Confidence level for ellipse size.
-            feature_list (list[str], optional): List of features for centroid calculation (default uses Xi and Xj only).
 
         Returns:
             None: Displays the plot.
@@ -295,10 +334,8 @@ class OverlapPairPlot(BaseVis):
         Plots confidence ellipses for each segment on a specified axis using the specified confidence level.
 
         Args:
-            data (pd.DataFrame): DataFrame containing feature columns and segment labels.
             Xi (str): Name of the feature to be plotted on the x-axis.
             Xj (str): Name of the feature to be plotted on the y-axis.
-            segments (str): Name of the column containing segment or cluster labels.
             ax (matplotlib.axes.Axes, optional): Matplotlib axis to plot on. Defaults to None.
             confidence_level (float, optional): Confidence level for the ellipses. Defaults to 0.95.
 
@@ -361,9 +398,6 @@ class OverlapPairPlot(BaseVis):
         Creates a customized lower-triangle pairplot with confidence ellipses representing segment boundaries.
 
         Args:
-            data (pd.DataFrame): Dataset containing features and segment labels.
-            features (list[str]): List of feature names to include in the pairplot.
-            segments (str): Column name representing segment or cluster labels.
             confidence_level (float, optional): Confidence level for the ellipses. Defaults to 0.95.
 
         Returns:
