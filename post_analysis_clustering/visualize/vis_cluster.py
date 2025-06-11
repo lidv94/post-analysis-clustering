@@ -9,6 +9,22 @@ from post_analysis_clustering.visualize.base import BaseVis
 
 
 class VisualizeCluster(BaseVis):
+    """
+    Visualization class for exploring clustering results.
+
+    Inherits from BaseVis and provides methods for:
+    - Cluster size pie chart
+    - Descriptive statistics by cluster
+    - Violin and box plots (Seaborn/Plotly)
+    - Crosstab heatmaps (categorical comparison)
+    - Quantile binning heatmaps (continuous variables)
+
+    Args:
+        df (pd.DataFrame): The input dataframe.
+        features (list[str]): List of feature columns to analyze.
+        target_cluster (str): The name of the column containing cluster assignments.
+        primary_key (str): Unique identifier for each row.
+    """
     def __init__(self, 
                  df, 
                  features, 
@@ -26,6 +42,11 @@ class VisualizeCluster(BaseVis):
         
     @timer
     def plot_pie_cluster(self):
+        """
+        Plots a pie chart showing the size distribution of clusters in the dataset.
+
+        Uses color palette from `get_palette` and annotates each slice with cluster size and percentage.
+        """
         prod_counts = self.df[self.target_cluster].value_counts()
         custom_colors = get_palette(self.target_cluster, self.df)
         colors = [custom_colors[label] for label in prod_counts.index]
@@ -43,6 +64,16 @@ class VisualizeCluster(BaseVis):
         
     @timer
     def get_descriptive_stats(self,filter_col_keywords: list[str] = None):
+        """
+        Prints descriptive statistics (mean, std, quartiles) for each feature by cluster.
+
+        Args:
+            filter_col_keywords (list[str], optional): Filters features to include only those whose name
+                contains one of the keywords (case-insensitive). If None, all features are used.
+
+        Raises:
+            TypeError: If `filter_col_keywords` is not a list of strings or None.
+        """
         if filter_col_keywords is not None and not all(isinstance(k, str) for k in filter_col_keywords):
             raise TypeError("filter_col_keywords must be a list of strings or None.")
 
@@ -58,6 +89,16 @@ class VisualizeCluster(BaseVis):
  
     @timer
     def plot_violin(self, filter_col_keywords: list[str] = None):
+        """
+        Creates Seaborn violin plots for each filtered feature against cluster groups.
+
+        Args:
+            filter_col_keywords (list[str], optional): List of keywords to filter feature names.
+                If None, plots all features.
+
+        Raises:
+            TypeError: If `filter_col_keywords` is not a list of strings or None.
+        """
         if filter_col_keywords is not None and not all(isinstance(k, str) for k in filter_col_keywords):
             raise TypeError("filter_col_keywords must be a list of strings or None.")    
         custom_palette = get_palette(self.target_cluster, self.df)
@@ -100,6 +141,13 @@ class VisualizeCluster(BaseVis):
     @timer
     def plot_violin_plotly(self, 
                            filter_col_keywords: list[str] = None):
+        """
+        Plots interactive violin plots using Plotly for the selected features.
+
+        Args:
+            filter_col_keywords (list[str], optional): List of keywords to filter features.
+                If None, plots all features.
+        """
         custom_palette = get_palette(self.target_cluster, self.df)
         sorted_categories = sorted(self.df[self.target_cluster].unique())
 
@@ -127,6 +175,13 @@ class VisualizeCluster(BaseVis):
     @timer
     def plot_box_plotly(self,
                         filter_col_keywords: list[str] = None):
+        """
+        Creates interactive Plotly box plots for each selected feature grouped by cluster.
+
+        Args:
+            filter_col_keywords (list[str], optional): List of substrings to filter feature names.
+                If None, uses all features.
+        """
         custom_palette = get_palette(self.target_cluster, self.df)  # Get color mapping
         sorted_categories = sorted(self.df[self.target_cluster].unique())
 
@@ -153,6 +208,22 @@ class VisualizeCluster(BaseVis):
                       compare_type: str = 'Global', 
                       annot_type: str = 'Actual'
                      ):
+        """
+        Plots a heatmap of category distribution (crosstab) for each categorical feature.
+
+        Args:
+            filter_col_keywords (list[str], optional): Keywords to filter features.
+            compare_type (str): Method for displaying heatmap values.
+                - 'Global': Raw counts
+                - 'Percentage': Percent of column total
+                - 'Normalized': Min-max normalized across each row
+            annot_type (str): Annotation content on heatmap.
+                - 'Actual': Raw counts
+                - 'Percentage': Percent format
+
+        Raises:
+            ValueError: If feature is not found in DataFrame.
+        """
         # If filter_col_keywords is None, use all features
         if filter_col_keywords is None:
             filtered_features = self.features
@@ -209,6 +280,15 @@ class VisualizeCluster(BaseVis):
 
     @timer
     def _prep_bin_heatmap(self, column: str) -> pd.DataFrame:
+        """
+        Prepares a quantile-binned version of a continuous column, adding a special '0' bin for exact zeros.
+
+        Args:
+            column (str): Name of the continuous column to bin.
+
+        Returns:
+            pd.DataFrame: Pivot table of binned category vs. cluster count.
+        """
         # Define quantiles for binning
         quantiles = np.arange(0, 1.1, 0.2)
         non_zero_mask = self.df[column] != 0
@@ -239,6 +319,18 @@ class VisualizeCluster(BaseVis):
     def plot_bin_heatmap(self, 
                          filter_col_keywords: list[str] = None, 
                          annot_type: str = 'Percentage'):
+        """
+        Plots heatmaps for each continuous feature using quantile binning.
+
+        Args:
+            filter_col_keywords (list[str], optional): Keywords to filter feature names.
+            annot_type (str): Annotation format.
+                - 'Actual': Display count per bin
+                - 'Percentage': Display row-wise percentage
+
+        Raises:
+            TypeError: If `filter_col_keywords` is not a list of strings or None.
+        """
         # Filter features case-insensitively based on filter_col_keywords
         if filter_col_keywords is not None:
             filtered_features = [col for col in self.features if any(keyword.lower() in col.lower() for keyword in filter_col_keywords)]
@@ -292,20 +384,25 @@ class VisualizeCluster(BaseVis):
     def plot_snake_scaled(self, 
                           filter_col_keywords: list[str] = None):
         """
-        Plots a snake plot to visualize the standardized trend of features, segmented by clusters.
+        Plot a snake plot showing standardized trends of continuous features across clusters.
+
+        The method standardizes selected features using z-score normalization and visualizes 
+        how each cluster's average feature value deviates from the overall mean. This is 
+        useful for comparing feature behavior between segments in a visually intuitive way.
 
         Args:
-            df (pd.DataFrame): The dataframe containing the raw data.
-            features (list[str]): List of continuous feature names to plot.
-            target_cluster (str): The name of the cluster column.
-            primary_key (str, optional): The name of the primary key column. Defaults to 'PARTY_RK'.
-            filter_col_keywords (list[str], optional): A list of keywords to filter feature names (case-insensitive). Defaults to None.
+            filter_col_keywords (list[str], optional): A list of keywords to filter the features 
+                to include in the plot. Filtering is case-insensitive and checks if any keyword 
+                is a substring of the feature name. If None, all features are included.
+
+        Raises:
+            ValueError: If no features match the given keywords.
 
         Returns:
-            None: Displays the snake plot.
+            None: Displays a Seaborn line plot (snake plot) showing standardized trends for each cluster.
 
         Example:
-            plot_snake_scaled(self.df, features, 'cluster_col', filter_col_keywords=['keyword1'])
+            plot_snake_scaled(filter_col_keywords=['income', 'age'])
         """
         custom_palette = get_palette(self.target_cluster, self.df)
 
@@ -348,21 +445,31 @@ class VisualizeCluster(BaseVis):
                           filter_col_keywords: list[str] = None, 
                           compare_type: str = 'Normalized'):
         """
-        Plots a heatmap of relative feature importance based on cluster averages versus population averages.
+        Plot a heatmap of relative feature importance comparing cluster means against 
+        the population mean for each feature.
+
+        The method computes the percentage difference between each cluster's average 
+        and the population average per feature. It optionally normalizes these values 
+        across clusters for visual comparison and then displays a heatmap annotated 
+        with actual relative importance values.
 
         Args:
-            df (pd.DataFrame): The dataframe containing the raw data.
-            features (list[str]): List of feature names to analyze.
-            target_cluster (str): The name of the cluster column.
-            filter_col_keywords (list[str], optional): A list of keywords to filter feature names (case-insensitive). Defaults to None.
-            compare_type (str, optional): Determines how values are scaled for coloring in the heatmap. 
-                                          Options are 'Normalized' or 'Global'. Defaults to 'Normalized'.
+            filter_col_keywords (list[str], optional): A list of keywords to filter the features 
+                to include in the analysis. Filtering is case-insensitive. If None, all features are used.
+            compare_type (str, optional): Determines the colormap scaling method. Choose from:
+                - 'Normalized': Normalize values per feature column (min-max scaling).
+                - 'Global': Show actual relative importance values without normalization.
+                Defaults to 'Normalized'.
+
+        Raises:
+            ValueError: If no features match the given keywords.
+            ValueError: If `compare_type` is not 'Normalized' or 'Global'.
 
         Returns:
-            None: Displays the heatmap.
+            None: Displays a heatmap with relative importance values annotated.
 
         Example:
-            plot_relative_imp(self.df, features, 'cluster_col', filter_col_keywords=['keyword1'])
+            plot_relative_imp(filter_col_keywords=['spending', 'income'], compare_type='Global')
         """
         # Filter features based on filter_col_keywords, case-insensitively
         if filter_col_keywords is None:
@@ -421,26 +528,33 @@ class VisualizeCluster(BaseVis):
         self,
         filter_col_keywords: list[str] = None,
         n_bins: int = 10
-    ):
+        ):
         """
-        Plots grouped bar charts showing the frequency of values in bins for each feature, 
-        split by the target_cluster. The bins are created using `pd.cut`, and zero values 
-        are separated. The chart is displayed in a subplot grid (2 columns).
+        Plot grouped (side-by-side) bar charts showing frequency distributions 
+        of binned feature values, grouped by cluster segments.
+
+        For each selected feature, the method:
+        - Separates zero and non-zero values.
+        - Bins non-zero values using `pd.cut`.
+        - Plots frequency counts for each bin, split by `target_cluster`.
+
+        The resulting charts are arranged in a subplot grid with two columns.
 
         Args:
-            df (pd.DataFrame): The dataframe containing the raw data.
-            features (list[str]): List of feature names to bin and plot.
-            target_cluster (str): The name of the target cluster column.
-            filter_col_keywords (list[str], optional): A list of keywords to filter feature names 
-                                                        (case-insensitive). Defaults to None.
-            n_bins (int, optional): The number of bins to create for non-zero values. Defaults to 10.
+            filter_col_keywords (list[str], optional): A list of keywords to filter 
+                features to include. Case-insensitive. If None, all features are included.
+            n_bins (int, optional): Number of bins to divide non-zero values. Defaults to 10.
+
+        Raises:
+            ValueError: If no features are matched by the keywords or binning fails.
 
         Returns:
-            None: Displays the grouped bar chart.
+            None: Displays matplotlib subplots with grouped bar charts.
 
         Example:
-            plot_grouped_bar_by_bins(self.df, features, 'cluster_col', filter_col_keywords=['keyword1'])
+            plot_grouped_bar_by_bins(filter_col_keywords=['income', 'spend'], n_bins=8)
         """
+
         # Filter features based on filter_col_keywords, case-insensitively
         if filter_col_keywords is None:
             filtered_features = self.features
@@ -514,27 +628,44 @@ class VisualizeCluster(BaseVis):
         n_bins: int = 10,
         percent_by: str = 'segment',  # 'segment' or 'bin'
         reference_stat: str = 'mean'  # 'mean' or 'median'
-    ):
+        ):
         """
-        Plots stacked bar charts showing the percentage distribution of binned values for each feature, 
-        split by the target_cluster. The chart is displayed with an optional reference line based on 
-        the mean or median of each bin.
+        Plot stacked bar charts showing the percentage distribution of binned feature values 
+        across cluster segments, with an optional global reference line.
+
+        For each selected feature, the method:
+        - Separates zero and non-zero values.
+        - Bins non-zero values using `pd.cut`.
+        - Computes % distribution either within each segment or within each bin.
+        - Displays stacked bar plots per segment using `seaborn.FacetGrid`.
+        - Adds reference bars based on the global mean or median percentage per bin.
 
         Args:
-            df (pd.DataFrame): The dataframe containing the raw data.
-            features (list[str]): List of feature names to bin and plot.
-            target_cluster (str): The name of the target cluster column.
-            filter_col_keywords (list[str], optional): A list of keywords to filter feature names 
-                                                        (case-insensitive). Defaults to None.
-            n_bins (int, optional): The number of bins to create for non-zero values. Defaults to 10.
-            percent_by (str, optional): How percentages are calculated. Options are 'segment' or 'bin'. Defaults to 'segment'.
-            reference_stat (str, optional): The statistic to use for the reference line. Options are 'mean' or 'median'. Defaults to 'mean'.
+            filter_col_keywords (list[str], optional): A list of keywords to filter 
+                features to include. Case-insensitive. If None, all features are included.
+            n_bins (int, optional): Number of bins to divide non-zero values. Defaults to 10.
+            percent_by (str, optional): Method for percentage normalization:
+                - 'segment': % within each cluster segment (row-wise normalization).
+                - 'bin': % within each bin (column-wise normalization).
+                Defaults to 'segment'.
+            reference_stat (str, optional): Statistic for reference line across segments per bin:
+                - 'mean': Mean of segment percentages.
+                - 'median': Median of segment percentages.
+                Defaults to 'mean'.
+
+        Raises:
+            ValueError: If `reference_stat` is not 'mean' or 'median'.
 
         Returns:
-            None: Displays the stacked bar chart with optional reference lines.
+            None: Displays FacetGrid of stacked bar charts with reference lines.
 
         Example:
-            plot_stacked_bar_by_bins(self.df, features, 'cluster_col', filter_col_keywords=['keyword1'])
+            model.plot_stacked_bar_by_bins(
+                filter_col_keywords=['debt', 'spend'],
+                n_bins=6,
+                percent_by='bin',
+                reference_stat='median'
+            )
         """
         # Filter features based on filter_col_keywords, case-insensitively
         if filter_col_keywords is None:
@@ -653,9 +784,6 @@ class VisualizeCluster(BaseVis):
         Create a summary table of statistics for each feature and each cluster.
 
         Args:
-            df (pd.DataFrame): Input dataframe.
-            feature_list (list[str]): List of feature columns to consider.
-            target_cluster (str): Name of the cluster column.
             filter_col_keywords (list[str], optional): Filter features by keywords (case-insensitive). Defaults to None.
             stats (list[str], optional): List of statistics to compute. Options: 'count','mean', 'mode', 'median', 'std'. Defaults to all.
 
@@ -709,9 +837,6 @@ class VisualizeCluster(BaseVis):
         Creates radar charts for each cluster using scaled feature summaries.
 
         Args:
-            df (pd.DataFrame): DataFrame containing features and target cluster column.
-            features (list[str]): List of feature column names.
-            target_cluster (str): Name of the column with cluster or group labels.
             agg_method (str): Aggregation method for feature summaries. Options: 'mean', 'median', 'q1', 'q3', 'max', 'min'.
             scaler_type (str): Type of scaler to use. Options: 'standard', 'minmax'.
 

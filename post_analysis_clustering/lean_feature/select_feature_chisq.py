@@ -15,6 +15,15 @@ class LeanChiSquare(BaseLean):
                  target_cluster,
                  thres_logworth: float = 1.301
                 ):
+        """
+        Initialize LeanChiSquare instance.
+
+        Args:
+            df (pd.DataFrame): Input DataFrame containing the features and cluster labels.
+            features (list[str]): List of feature column names to evaluate.
+            target_cluster (str): Column name representing the cluster labels.
+            thres_logworth (float, optional): Threshold of -log10(p-value) to determine significance. Defaults to 1.301 (~p < 0.05).
+        """
         
         self.df = df
         self.features = features
@@ -29,6 +38,13 @@ class LeanChiSquare(BaseLean):
                          target_cluster)
         
     def _validate_chisq_attribute(self):
+        """
+        Validate the logworth threshold value.
+
+        Raises:
+            TypeError: If thres_logworth is not a float or int.
+            ValueError: If thres_logworth is less than or equal to 0.
+        """
         if not isinstance(self.thres_logworth, (float, int)):
             raise TypeError("thres_logworth must be a numeric value.")
         
@@ -44,19 +60,17 @@ class LeanChiSquare(BaseLean):
                      drop_original: bool = True
                      ) -> pd.DataFrame:
         """
-        Bin numerical features using the selected method:
-        - "equal_range": Equal-width binning for all values.
-        - "neg_zero_pos": Separate binning for negative, zero, and positive values.
+        Bin numerical features using the specified method and prepare binary cluster indicators.
 
-        Parameters:
-            method (str): Binning method to use ("equal_range" or "neg_zero_pos").
-            n_bins (int): Number of bins for equal_range method.
-            neg_n_bins (int): Number of bins for negative values (neg_zero_pos).
-            pos_n_bins (int): Number of bins for positive values (neg_zero_pos).
-            drop_original (bool): Whether to drop original columns.
+        Args:
+            method (str, optional): Binning method: 'equal_range' or 'neg_zero_pos'. Defaults to 'equal_range'.
+            n_bins (int, optional): Number of bins for equal_range method. Defaults to 5.
+            neg_n_bins (int, optional): Number of bins for negative values in neg_zero_pos method. Defaults to 5.
+            pos_n_bins (int, optional): Number of bins for positive values in neg_zero_pos method. Defaults to 5.
+            drop_original (bool, optional): Whether to drop the original feature columns. Defaults to True.
 
         Returns:
-            pd.DataFrame: DataFrame with binned features as new columns.
+            pd.DataFrame: DataFrame with binned features and binary cluster indicator columns.
         """
         binned_df = self.df.copy()
         
@@ -145,7 +159,22 @@ class LeanChiSquare(BaseLean):
                      drop_original: bool = True,
                      min_valid_p: float = 1e-300
                      ):
+        """
+        Perform Chi-square tests between binned features and binary cluster segments.
 
+        Args:
+            method (str, optional): Binning method: 'equal_range' or 'neg_zero_pos'. Defaults to 'equal_range'.
+            n_bins (int, optional): Number of bins for equal_range method. Defaults to 5.
+            neg_n_bins (int, optional): Number of bins for negative values in neg_zero_pos method. Defaults to 5.
+            pos_n_bins (int, optional): Number of bins for positive values in neg_zero_pos method. Defaults to 5.
+            drop_original (bool, optional): Whether to drop the original feature columns. Defaults to True.
+            min_valid_p (float, optional): Minimum valid p-value to avoid log(0) during logworth computation. Defaults to 1e-300.
+
+        Returns:
+            tuple:
+                - pd.DataFrame: DataFrame of raw p-values (features × clusters).
+                - pd.DataFrame: DataFrame of -log10(p-values), also known as logworth scores.
+        """
         # Step 1 Preprocess data to create binary columns for cluster segments
         binned_df = self.PrepData(method=method,
                                   n_bins=n_bins,
@@ -201,45 +230,67 @@ class LeanChiSquare(BaseLean):
     def GetLeanFeature(self,
                         logworth_df: pd.DataFrame=None
                        ):
-         try:
-            if logworth_df is None:
-                if not hasattr(self, "logworth_df")  or self.logworth_df is None:
-                    print("No logworth_df provided. Testing Chi-Square for all segments...")
-                    self.TestChiSquare()
-                logworth_df = self.logworth_df
+        
+        """
+        Extract significant features per cluster based on logworth threshold.
 
-            cluster_lean_features_dict = {}
-            union_lean_feature_set = set()
+        Args:
+            logworth_df (pd.DataFrame, optional): Logworth score DataFrame. If None, internal Chi-square test will be performed. Defaults to None.
 
-            print(f'Threshold of logworth > {self.thres_logworth}')
+        Returns:
+            tuple:
+                - dict[str, list[str]]: Dictionary mapping each cluster to its list of significant features.
+                - list[str]: Union of all significant features across clusters.
+        """
 
-            for cluster in logworth_df.columns:
-                sig_features = logworth_df[cluster][logworth_df[cluster] > self.thres_logworth].dropna().index.tolist()
-                sig_features = sorted(sig_features)
-                union_lean_feature_set.update(sig_features)
+        if logworth_df is None:
+            if not hasattr(self, "logworth_df")  or self.logworth_df is None:
+                print("No logworth_df provided. Testing Chi-Square for all segments...")
+                self.TestChiSquare()
+            logworth_df = self.logworth_df
 
-                cluster_lean_features_dict[cluster] = sig_features
+        cluster_lean_features_dict = {}
+        union_lean_feature_set = set()
 
-                print(f"Cluster {cluster}:")
-                print(f"  Total features from raw: {len(logworth_df.index)}")
-                print(f"  Total features remaining after threshold filter: {len(sig_features)}")
+        print(f'Threshold of logworth > {self.thres_logworth}')
 
-            union_lean_feature_list = sorted(list(union_lean_feature_set))
-            print(f"\nUnion across all clusters:")
-            print(f"  Total union features: {len(union_lean_feature_list)}")
+        for cluster in logworth_df.columns:
+            sig_features = logworth_df[cluster][logworth_df[cluster] > self.thres_logworth].dropna().index.tolist()
+            sig_features = sorted(sig_features)
+            union_lean_feature_set.update(sig_features)
 
-            return cluster_lean_features_dict, union_lean_feature_list
+            cluster_lean_features_dict[cluster] = sig_features
 
-         except Exception as e:
-            print(f"Error in filter_thres_features_by_cluster: {e}")
-            raise
+            print(f"Cluster {cluster}:")
+            print(f"  Total features from raw: {len(logworth_df.index)}")
+            print(f"  Total features remaining after threshold filter: {len(sig_features)}")
+
+        union_lean_feature_list = sorted(list(union_lean_feature_set))
+        print(f"\nUnion across all clusters:")
+        print(f"  Total union features: {len(union_lean_feature_list)}")
+
+        return cluster_lean_features_dict, union_lean_feature_list
+
         
     @timer
     def PlotHeatmapLogworth(self, 
                       logworth_df: pd.DataFrame = None, 
                       compare_type: str = 'Normalized'
                       ):
-        
+        """
+        Plot a heatmap of logworth scores for each feature-cluster pair.
+
+        Args:
+            logworth_df (pd.DataFrame, optional): Logworth score DataFrame. If None, internal Chi-square test will be performed. Defaults to None.
+            compare_type (str, optional): Comparison method for visualization. One of 'Global', 'Percentage', or 'Normalized'. Defaults to 'Normalized'.
+
+        Raises:
+            ValueError: If compare_type is not one of the allowed options.
+
+        Returns:
+            None
+        """
+
         if logworth_df is None:
             if not hasattr(self, "logworth_df")  or self.logworth_df is None:
                 print("No logworth_df provided. Testing Chi-Square for all segments...")

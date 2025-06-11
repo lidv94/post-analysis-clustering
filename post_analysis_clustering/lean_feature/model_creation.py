@@ -6,11 +6,55 @@ from sklearn.metrics import accuracy_score, classification_report
 from post_analysis_clustering.utils import timer
 
 class ModelCreation:
+    """
+    A class for evaluating feature importance across multiple models 
+    using permutation importance on binary classification tasks derived 
+    from multi-class cluster labels.
+
+    This class supports ranking features by model-specific importance, 
+    aggregating results across clusters, and generating bin-based summaries.
+
+    Attributes:
+        models (dict[str, sklearn.base.BaseEstimator]): 
+            Dictionary of model names and scikit-learn classifier instances.
+        n_rank (int): 
+            Number of top-ranked features to consider for importance summary.
+        pct_thres (float): 
+            Threshold (0 to 100) for cumulative importance percentage used 
+            in binning and scoring.
+    """
     def __init__(self, 
                  models: dict,
                  n_rank: int=5,
                  pct_thres:float=80,
                 ):
+        """
+        Initializes the ModelCreation class with the given models and configuration.
+
+        Args:
+            models (dict[str, sklearn.base.BaseEstimator]):
+                A dictionary mapping model names to scikit-learn classifier objects.
+                Example:
+                    models = {
+                            "Decision Tree": DecisionTreeClassifier(random_state=42),
+                            "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42),
+                            "HistGradientBoosting": HistGradientBoostingClassifier(random_state=42, early_stopping=True),
+                            "Logistic Regression": LogisticRegression(max_iter=2000, random_state=42),
+                            "Logistic Regression (L1)": LogisticRegression(penalty='l1', solver='liblinear', max_iter=2000, random_state=42),
+                            "Naive Bayes": GaussianNB()
+                            }
+            n_rank (int, optional):
+                The number of top-ranked features to include in the rank summary. 
+                Defaults to 5.
+            pct_thres (float, optional):
+                Threshold for cumulative importance binning (0-100). Determines 
+                whether a feature is considered important across models. 
+                Defaults to 80.
+        
+        Raises:
+            TypeError: If models is not a dictionary.
+            ValueError: If `n_rank` is not a positive integer or `pct_thres` is not within (0, 100].
+        """
         self.models = models
         self.n_rank = n_rank
         self.pct_thres = pct_thres
@@ -18,16 +62,19 @@ class ModelCreation:
     @timer
     def _calculate_permutation_importance(self, features, model, X_test, y_test):
         """
-        model must be dictionary.
-        example :
-        models = {
-                "Decision Tree": DecisionTreeClassifier(random_state=42),
-                "Random Forest": RandomForestClassifier(n_estimators=100, random_state=42),
-                "HistGradientBoosting": HistGradientBoostingClassifier(random_state=42, early_stopping=True),
-                "Logistic Regression": LogisticRegression(max_iter=2000, random_state=42),
-                "Logistic Regression (L1)": LogisticRegression(penalty='l1', solver='liblinear', max_iter=2000, random_state=42),
-                "Naive Bayes": GaussianNB()
-                }
+        Calculates permutation feature importance for a trained model.
+
+        Args:
+            features (list[str]): List of feature names.
+            model (sklearn.base.BaseEstimator): Trained model to evaluate.
+            X_test (pd.DataFrame): Test feature data.
+            y_test (pd.Series): Test target labels.
+
+        Returns:
+            pd.DataFrame: A dataframe containing feature names and their corresponding importance scores.
+
+        Example:
+            importance_df = self._calculate_permutation_importance(features, model, X_test, y_test)
         """
         perm_importance = permutation_importance(model,
                                                  X_test, 
@@ -41,7 +88,27 @@ class ModelCreation:
 
     @timer
     def _train_and_evaluate_model(self,features, model, X_train, X_test, y_train, y_test):
-        # Train a given model, evaluate accuracy, and compute permutation importance.
+        """
+        Trains a model, evaluates performance, and calculates permutation importance.
+
+        Args:
+            features (list[str]): List of feature names.
+            model (sklearn.base.BaseEstimator): Model to be trained.
+            X_train (pd.DataFrame): Training feature data.
+            X_test (pd.DataFrame): Test feature data.
+            y_train (pd.Series): Training target labels.
+            y_test (pd.Series): Test target labels.
+
+        Returns:
+            tuple:
+                - pd.DataFrame: Feature importance.
+                - float: Training accuracy.
+                - float: Test accuracy.
+                - dict: Classification report.
+
+        Example:
+            imp_df, train_acc, test_acc, report = self._train_and_evaluate_model(...)
+        """
         model.fit(X_train, y_train)
         train_pred = model.predict(X_train)
         test_pred = model.predict(X_test)
@@ -55,7 +122,22 @@ class ModelCreation:
     
     @timer
     def _run_all_models(self, features,X_train, X_test, y_train, y_test):
-        # Train multiple models, evaluate performance, and calculate permutation importance.
+        """
+        Trains all models, evaluates them, and calculates feature importance.
+
+        Args:
+            features (list[str]): List of feature names.
+            X_train (pd.DataFrame): Training feature data.
+            X_test (pd.DataFrame): Test feature data.
+            y_train (pd.Series): Training target labels.
+            y_test (pd.Series): Test target labels.
+
+        Returns:
+            tuple:
+                - dict[str, pd.DataFrame]: Importance results per model.
+                - dict[str, dict[str, float]]: Train/test accuracy for each model.
+                - dict[str, dict]: Classification reports per model.
+        """
         importance_results = {}
         performance = {}
         classification_reports = {}
@@ -71,7 +153,18 @@ class ModelCreation:
     
     @timer
     def _prep_binary_class(self,df,features,target_cluster):
-        # Prepares binary classification labels for each cluster segment by converting the target cluster into binary columns.
+        """
+        Creates binary columns for each cluster value (one-vs-all).
+
+        Args:
+            df (pd.DataFrame): Full dataset.
+            features (list[str]): List of feature names.
+            target_cluster (str): Target column representing clusters.
+
+        Returns:
+            pd.DataFrame: Modified dataframe with binary columns for each cluster.
+        """
+
         binary_df = df.copy() 
         for cluster_label in sorted(df[target_cluster].unique()):
             binary_df[f'is_cluster_{cluster_label}'] = (df[target_cluster] == cluster_label).astype(int)
@@ -79,7 +172,18 @@ class ModelCreation:
     
     @timer
     def _cal_imp_one_binary_class(self,df, features,target_cluster,focus_segment):
-        # Performs binary classification to evaluate feature importance for a specific cluster segment.
+        """
+        Computes permutation importance for a specific cluster (one-vs-all binary classification).
+
+        Args:
+            df (pd.DataFrame): Full dataset.
+            features (list[str]): Feature names.
+            target_cluster (str): Target column for clusters.
+            focus_segment (Any): The cluster value to treat as positive class.
+
+        Returns:
+            pd.DataFrame: Feature importances across all models for the specified segment.
+        """
         binary_df = self._prep_binary_class(df,features,target_cluster)
         y = binary_df[f'is_cluster_{focus_segment}']
         X = binary_df[features]
@@ -106,8 +210,20 @@ class ModelCreation:
 
 
     @timer
-    def _prep_rank_importance(self,df,features,target_cluster,focus_segment) -> pd.DataFrame:
-        # Ranks features based on their importance scores across different models.
+    def _prep_rank_importance(self,df,features,target_cluster,focus_segment) -> pd.DataFrame:        
+        """
+        Prepares a long-form dataframe of feature importance ranks and cumulative contribution.
+        Ranks features based on their importance scores across different models.
+
+        Args:
+            df (pd.DataFrame): Full dataset.
+            features (list[str]): Feature names.
+            target_cluster (str): Target cluster column.
+            focus_segment (Any): Cluster value to compute importance for.
+
+        Returns:
+            pd.DataFrame: Melted and ranked importance with cumulative contribution.
+        """
         importance_df = self._cal_imp_one_binary_class(df,features, target_cluster,focus_segment)
         melt_df = pd.melt(importance_df, id_vars="Feature", value_vars=importance_df.drop("Feature", axis=1).columns.tolist()) 
 
@@ -130,7 +246,18 @@ class ModelCreation:
             
     @timer
     def _pivot_rank_importance(self,df,features,target_cluster,focus_segment):
-        # Creates a pivot table summarizing the ranks of features across models.
+        """
+        Aggregates top-N ranked features across models into a pivot table.
+
+        Args:
+            df (pd.DataFrame): Dataset.
+            features (list[str]): Feature names.
+            target_cluster (str): Cluster column.
+            focus_segment (Any): Cluster value of interest.
+
+        Returns:
+            pd.DataFrame: Pivot table of feature counts at each rank across models.
+        """
         melt_df = self._prep_rank_importance(df,features,target_cluster,focus_segment)
         pvt_imp = pd.pivot_table(melt_df,
                                  index='Feature',
@@ -143,10 +270,21 @@ class ModelCreation:
 
 
     @timer
-    def _cal_imp_all_binary_class(self,df,features, target_cluster):
+    def _cal_imp_all_binary_class(self,df,features, target_cluster):   
         """
-        Computes feature importance for all unique segments in the target cluster column using a binary classification approach.
-        """    
+        Computes feature importance for each cluster segment using one-vs-all binary classification.
+
+        Args:
+            df (pd.DataFrame): Dataset.
+            features (list[str]): Feature names.
+            target_cluster (str): Column representing cluster labels.
+
+        Returns:
+            tuple:
+                - pd.DataFrame: Combined feature importances for all segments.
+                - pd.DataFrame: Aggregated top-N feature ranks for all segments.
+                - pd.DataFrame: Cumulative contribution of each feature.
+        """
         unique_segments = sorted(df[target_cluster].unique(), reverse=False)
         all_imps = []
         all_pvt_imps_score = []
@@ -197,10 +335,22 @@ class ModelCreation:
     def _bin_cumsum_percentiles(self,
                                 final_cumsum, 
                                 bin_size: int = 20
-                               ) -> pd.DataFrame:
+                               ) -> pd.DataFrame:         
         """
-        Bins `cumsum_pct` into percentile intervals and counts model occurrences per bin per feature & segment.
-        """            
+        Bins features into percentile-based groups and counts model occurrences per bin per feature & segment.
+
+        Args:
+            final_cumsum (pd.DataFrame): DataFrame with cumulative importance values.
+            bin_size (int, optional): Percentile bin size. Defaults to 20.
+
+        Returns:
+            tuple:
+                - pd.DataFrame: Binned model count for each feature and segment.
+                - pd.DataFrame: Voting score summary vs threshold.
+
+        Example:
+            final_pvt_bin, final_vote_score = self._bin_cumsum_percentiles(cumsum_df)
+        """
         df = final_cumsum.copy()
 
         # Ensure cumsum_pct is within [0, 1]
@@ -290,6 +440,24 @@ class ModelCreation:
             df: pd.DataFrame,
             features: list[str],
             target_cluster: str):
+        """
+        Main method to compute and summarize feature importance across models and clusters.
+
+        Args:
+            df (pd.DataFrame): Dataset.
+            features (list[str]): List of feature names to evaluate.
+            target_cluster (str): Column representing clusters.
+
+        Returns:
+            dict:
+                - final_imp (pd.DataFrame): Feature importances for all segments.
+                - final_imp_score (pd.DataFrame): Ranked importance (pivoted format).
+                - final_cumsum_bin (pd.DataFrame): Percentile bin count summary.
+                - final_cumsum_score (pd.DataFrame): Score summary with threshold filtering.
+
+        Example:
+            result = model_runner.run(df=data, features=feature_list, target_cluster="cluster")
+        """
         
         final_imp,final_imp_score,final_cumsum = self._cal_imp_all_binary_class(df, features, target_cluster)
         final_cumsum_bin , final_cumsum_score = self._bin_cumsum_percentiles(final_cumsum)
@@ -297,7 +465,6 @@ class ModelCreation:
         return dict(
                     final_imp=final_imp,
                     final_imp_score=final_imp_score,
-                    # final_cumsum=final_cumsum,
                     final_cumsum_bin=final_cumsum_bin,
                     final_cumsum_score=final_cumsum_score
                     )

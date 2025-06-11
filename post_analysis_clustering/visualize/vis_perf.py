@@ -7,6 +7,50 @@ from post_analysis_clustering.utils import timer, get_palette
 from post_analysis_clustering.visualize.base import BaseVis
 
 class PerformanceMetrics(BaseVis):
+    """
+    A class for evaluating the quality of clustering results using internal validation metrics 
+    and visualizing the performance across commonly used indices.
+
+    Inherits:
+        BaseVis: Provides foundational attributes like the input DataFrame, selected features, 
+                 cluster labels, and primary key.
+
+    Attributes:
+        df (pd.DataFrame): The input dataset containing features and cluster labels.
+        features (list[str]): List of feature column names used for metric evaluation.
+        target_cluster (str): Name of the column indicating cluster membership.
+        primary_key (str): Unique identifier for each row.
+        scale (bool): Whether to standardize features using z-score normalization before evaluation.
+        sample_size (int or None): If specified, limits computation to a random subset of this size.
+        stratify (bool): If sampling is applied, maintains cluster proportions in the subsample.
+
+    Methods:
+        _compute_cluster_metrics():
+            Computes three internal clustering evaluation metrics:
+            - Silhouette Score (higher is better)
+            - Davies-Bouldin Index (lower is better)
+            - Calinski-Harabasz Index (higher is better)
+
+        plot_cluster_metric_ranges():
+            Visualizes each clustering metric with annotated score lines and ideal targets 
+            on adaptive horizontal plots.
+
+    Raises:
+        TypeError: If `scale` or `stratify` is not a boolean.
+        ValueError: If `sample_size` is not a positive integer or None.
+
+    Example:
+        >>> metrics = PerformanceMetrics(
+                df=clustered_data,
+                features=feature_cols,
+                target_cluster="cluster",
+                primary_key="id",
+                scale=True,
+                sample_size=10000,
+                stratify=True
+            )
+        >>> metrics.plot_cluster_metric_ranges()
+    """
     def __init__(self, 
                  df, 
                  features, 
@@ -50,14 +94,6 @@ class PerformanceMetrics(BaseVis):
           to within-cluster dispersion. Higher values indicate more distinct clusters.
 
         Optionally supports feature standardization and stratified sampling for large datasets.
-
-        Args:
-            self.df (pd.DataFrame): Input dataframe containing both features and cluster labels.
-            features (list[str]): List of column names used for clustering evaluation.
-            target_cluster (str): Column name containing cluster labels.
-            scale (bool, optional): Whether to apply standard scaling to features. Defaults to True.
-            sample_size (int, optional): Optional sub-sample size for faster computation. If None, full dataset is used.
-            stratify (bool, optional): If True, sampling preserves cluster proportions. Defaults to True.
 
         Returns:
             dict: Dictionary with keys:
@@ -115,14 +151,6 @@ class PerformanceMetrics(BaseVis):
           - Blue vertical line for the actual score.
           - Green dashed line for the ideal target.
           - Adaptive x-axis limits (e.g., `score + 3` for DBI, `score * 1.2` for CHI).
-
-        Args:
-            self.df (pd.DataFrame): Input dataset containing feature columns and cluster labels.
-            features (list[str]): List of feature columns used to compute metrics.
-            target_cluster (str): Column name indicating the cluster label.
-            scale (bool, optional): If True, applies standard scaling to the features. Defaults to True.
-            sample_size (int, optional): Optional number of rows to sample. If None, uses all data.
-            stratify (bool, optional): Whether to maintain cluster proportions when sampling. Defaults to True.
 
         Returns:
             None: Displays matplotlib plots of each clustering metric with range annotations.

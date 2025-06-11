@@ -10,6 +10,38 @@ from post_analysis_clustering.utils import timer, get_palette
 from post_analysis_clustering.visualize.base import BaseVis
 
 class DimensionalityReduction(BaseVis):
+    """
+    A class for applying dimensionality reduction techniques (e.g., PCA, t-SNE, UMAP)
+    to high-dimensional cluster data for visualization purposes.
+
+    Inherits from:
+        BaseVis: A base class containing common attributes and utilities for clustering visualization.
+
+    Attributes:
+        df (pd.DataFrame): The input dataframe.
+        features (list[str]): A list of column names to use for dimensionality reduction.
+        target_cluster (str): Name of the column indicating cluster labels.
+        primary_key (str): The column name that uniquely identifies each record.
+        scale (bool): Whether to standardize the features before reduction. Defaults to True.
+        sample_size (int or None): Optional limit for the number of samples to process. 
+            If set, the data is sampled (optionally stratified). Defaults to None.
+        stratify (bool): Whether to stratify sampling based on `target_cluster`. Defaults to True.
+
+    Raises:
+        TypeError: If `scale` or `stratify` is not a boolean.
+        ValueError: If `sample_size` is not None or a positive integer.
+
+    Example:
+        reducer = DimensionalityReduction(
+            df=data, 
+            features=numeric_cols, 
+            target_cluster='cluster', 
+            primary_key='customer_id',
+            scale=True,
+            sample_size=5000,
+            stratify=True
+        )
+    """
     def __init__(self, 
                  df, 
                  features, 
@@ -57,9 +89,6 @@ class DimensionalityReduction(BaseVis):
         - Well-separated, compact clusters suggest good cluster quality, while overlapping clusters may indicate less distinct groups.   
 
         Args:
-            df (pd.DataFrame): Input dataframe.
-            features (list[str]): List of feature columns to use for dimensionality reduction.
-            target_cluster (str): Column name for cluster/segment labels.
             method (str): 'pca' or 'tsne'. Default is 'pca'.
             n_components (int): Number of dimensions to reduce to (2 or 3 recommended). Default is 2.
             title (str): Optional plot title.

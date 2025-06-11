@@ -8,6 +8,21 @@ from post_analysis_clustering.lean_feature.model_creation import ModelCreation
 from post_analysis_clustering.lean_feature.base import BaseLean
 
 class LeanImportanceThreshold(BaseLean):
+    """
+    Performs feature selection based on cumulative importance voting across 
+    binned permutation results from multiple models and thresholds.
+
+    This class is designed for post-clustering analysis to identify lean 
+    (important) features by evaluating the cumulative voting across thresholds 
+    (e.g., individual importance, below/above percentile thresholds).
+
+    Attributes:
+        df (pd.DataFrame): Input dataset.
+        features (List[str]): List of feature column names.
+        target_cluster (str): Name of the column indicating cluster membership.
+        model_creation (ModelCreation): Model creation and importance computation handler.
+        vote_score (int): Threshold number of votes a feature must receive to be considered important.
+    """
     def __init__(self, 
                  df, 
                  features, 
@@ -28,7 +43,16 @@ class LeanImportanceThreshold(BaseLean):
     @timer
     def RunModelCreation(self):
         """
-        Runs the ModelCreation process and stores final importance results.
+        Executes the model training and feature importance computation.
+
+        Delegates execution to the `ModelCreation` object and stores the following:
+          - `final_cumsum_bin`: Raw binned importance scores per feature/cluster.
+          - `final_cumsum_score`: Aggregated vote counts across thresholds.
+
+        Returns:
+            Tuple[pd.DataFrame, pd.DataFrame]:
+                - final_cumsum_bin: Detailed importance values.
+                - final_cumsum_score: Vote count summary by feature and cluster.
         """
         print("Running model creation and importance ranking...")
 
@@ -53,8 +77,24 @@ class LeanImportanceThreshold(BaseLean):
                         final_cumsum_score: pd.DataFrame = None
                            ) :
         """
-        Filters features by cluster based on the sum of importance votes across all bins (e.g., `single_imp`, `pct=<thres>`, `pct=>thres`),
-        and returns features where the vote sum is >= self.vote_score.
+        Filters features for each cluster based on the cumulative vote score across binned importance levels.
+
+        If `final_cumsum_score` is not provided, uses `self.final_cumsum_score` 
+        (computed via `_bin_cumsum_percentiles()` if necessary).
+
+        Features are retained if their total vote score is greater than or equal to `self.vote_score`.
+
+        Args:
+            final_cumsum_score (pd.DataFrame, optional): DataFrame with vote scores for each feature and segment.
+                Must include columns: ['Segment', 'Feature', model_1, model_2, ..., model_n].
+
+        Returns:
+            Tuple[Dict[int, List[str]], List[str]]:
+                - Dictionary mapping each cluster ID to a list of selected features.
+                - Union list of all selected features across all clusters.
+
+        Raises:
+            Exception: If computation fails due to missing data or other errors.
         """
         try:
             if final_cumsum_score is None:

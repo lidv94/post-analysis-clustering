@@ -8,6 +8,20 @@ from post_analysis_clustering.lean_feature.model_creation import ModelCreation
 from post_analysis_clustering.lean_feature.base import BaseLean
 
 class LeanImportanceRank(BaseLean):
+    """
+    A class for performing permutation-based feature importance analysis
+    using multiple classification models across cluster segments.
+
+    This class integrates with `ModelCreation` to compute feature importance,
+    rank features based on voting logic, and visualize results with heatmaps.
+
+    Attributes:
+        df (pd.DataFrame): Input DataFrame with features and cluster column.
+        features (List[str]): List of feature names to evaluate.
+        target_cluster (str): Name of the cluster assignment column.
+        model_creation (ModelCreation): ModelCreation object that handles training and permutation.
+        vote_score (int): Minimum number of models voting a feature as important.
+    """
     def __init__(self, 
                  df, 
                  features, 
@@ -28,7 +42,16 @@ class LeanImportanceRank(BaseLean):
     @timer
     def RunModelCreation(self):
         """
-        Runs the ModelCreation process and stores final importance results.
+        Runs the model training and permutation importance scoring process 
+        using the ModelCreation object.
+
+        Stores:
+            - final_imp (pd.DataFrame): Raw permutation importance values for each feature.
+            - final_imp_score (pd.DataFrame): Vote-based scoring of feature importance across models.
+
+        Returns:
+            Tuple[pd.DataFrame, pd.DataFrame]: 
+                final_imp and final_imp_score DataFrames.
         """
         print("Running model creation and importance ranking...")
 
@@ -53,7 +76,21 @@ class LeanImportanceRank(BaseLean):
                        final_imp_score: pd.DataFrame = None, 
                        ):
         """
-        Filters features by cluster and a threshold score for importance, and returns the remaining features for each cluster.
+        Filters features for each cluster based on the vote threshold.
+
+        If `final_imp_score` is not provided, it uses `self.final_imp_score`.
+
+        Args:
+            final_imp_score (pd.DataFrame, optional): Vote score DataFrame with columns:
+                ['Segment', 'Feature', model_1, model_2, ..., model_n].
+
+        Returns:
+            Tuple[Dict[int, List[str]], List[str]]:
+                - A dictionary mapping each cluster to its lean feature list.
+                - A list of union features that passed the threshold in at least one cluster.
+
+        Raises:
+            Exception: If an error occurs during filtering.
         """
         try:
             if final_imp_score is None:
@@ -100,13 +137,22 @@ class LeanImportanceRank(BaseLean):
                            annot_type:str = 'Importance'
                           ):
         """
-        Plots a heatmap of feature importance scores for multiple models, segmented by cluster.
+        Plots heatmaps of feature importances for each cluster and model.
 
-        Parameters:
-            final_imp (pd.DataFrame, optional): Importance DataFrame from _cal_imp_all_binary_class. 
-                                                If None, uses self.final_imp or computes it.
-            compare_type (str): One of ['global', 'percentage', 'normalized'] to scale heatmap values.
-            annot_type (str): One of ['importance', 'rank'] to show annotation on heatmap.
+        Args:
+            final_imp (pd.DataFrame, optional): DataFrame with raw importance values.
+                If None, uses self.final_imp.
+            compare_type (str): One of {'global', 'percentage', 'normalized'}.
+                - 'global': raw values.
+                - 'percentage': column-wise percentage.
+                - 'normalized': column-wise min-max scaling.
+            annot_type (str): One of {'importance', 'rank'}.
+                - 'importance': numeric values.
+                - 'rank': ordinal ranks.
+
+        Raises:
+            ValueError: If `compare_type` or `annot_type` is invalid.
+            Exception: If plotting fails.
         """
         try:            
             if final_imp is None:
@@ -172,11 +218,19 @@ class LeanImportanceRank(BaseLean):
     @timer
     def PlotVoteRank(self, 
                       final_imp_score: pd.DataFrame = None
-                      ):
-        '''
-          Plots heatmaps for each segment using precomputed feature importance scores, 
-          with colors representing ranked importance.
-        '''  
+                      ): 
+        """
+        Plots heatmaps of model voting results for each cluster
+
+        Each cell represents the number of models that ranked a feature in the top-N with colors representing ranked importance..
+
+        Args:
+            final_imp_score (pd.DataFrame, optional): Voting score DataFrame.
+                If None, uses self.final_imp_score.
+
+        Raises:
+            Exception: If plotting fails.
+        """
         try: 
             if final_imp_score is None:
                 if not hasattr(self, "final_imp_score")  or self.final_imp_score is None:
